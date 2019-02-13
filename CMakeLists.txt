@@ -14,6 +14,28 @@ set(INSTALL_INC_DIR "${CMAKE_INSTALL_PREFIX}/include" CACHE PATH "Installation d
 set(INSTALL_MAN_DIR "${CMAKE_INSTALL_PREFIX}/share/man" CACHE PATH "Installation directory for manual pages")
 set(INSTALL_PKGCONFIG_DIR "${CMAKE_INSTALL_PREFIX}/share/pkgconfig" CACHE PATH "Installation directory for pkgconfig (.pc) files")
 
+option(BUILD_STATIC_LIBS "Build the static library" ON)
+option(BUILD_SHARED_LIBS "Build the shared library" OFF)
+
+option(BUILD_SHARED_AND_STATIC_LIBS "Build the shared and static library" OFF)
+
+if(BUILD_SHARED_LIBS AND BUILD_STATIC_LIBS)
+    SET(BUILD_SHARED_AND_STATIC_LIBS ON)
+endif()
+
+if( NOT BUILD_SHARED_LIBS AND NOT BUILD_STATIC_LIBS )
+    message( FATAL_ERROR "not defined how to build the library")
+endif()
+
+    
+if(BUILD_SHARED_AND_STATIC_LIBS)
+    message( STATUS "Building zlib shared and static" )
+elseif(BUILD_SHARED_LIBS)
+    message( STATUS "Building zlib shared" )
+else()
+    message( STATUS "Building zlib static" )
+endif()
+
 include(CheckTypeSize)
 include(CheckFunctionExists)
 include(CheckIncludeFile)
@@ -183,12 +205,20 @@ if(MINGW)
     set(ZLIB_DLL_SRCS ${CMAKE_CURRENT_BINARY_DIR}/zlib1rc.obj)
 endif(MINGW)
 
-add_library(zlib SHARED ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_DLL_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
-add_library(zlibstatic STATIC ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
-set_target_properties(zlib PROPERTIES DEFINE_SYMBOL ZLIB_DLL)
-set_target_properties(zlib PROPERTIES SOVERSION 1)
+if(BUILD_SHARED_AND_STATIC_LIBS)
+    add_library(zlib SHARED ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_DLL_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
+    add_library(zlibstatic STATIC ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})    
+else()
+    # determine which to build depending on BUILD_SHARED_LIBS variable
+    add_library(zlib ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_DLL_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
+endif()
 
-if(NOT CYGWIN)
+if(BUILD_SHARED_LIBS)
+    set_target_properties(zlib PROPERTIES DEFINE_SYMBOL ZLIB_DLL)
+    set_target_properties(zlib PROPERTIES SOVERSION 1)
+endif()
+    
+if(NOT CYGWIN AND BUILD_SHARED_LIBS)
     # This property causes shared libraries on Linux to have the full version
     # encoded into their final filename.  We disable this on Cygwin because
     # it causes cygz-${ZLIB_FULL_VERSION}.dll to be created when cygz.dll
@@ -201,17 +231,28 @@ endif()
 
 if(UNIX)
     # On unix-like platforms the library is almost always called libz
-   set_target_properties(zlib zlibstatic PROPERTIES OUTPUT_NAME z)
-   if(NOT APPLE)
-     set_target_properties(zlib PROPERTIES LINK_FLAGS "-Wl,--version-script,\"${CMAKE_CURRENT_SOURCE_DIR}/zlib.map\"")
-   endif()
+    set_target_properties(zlib PROPERTIES OUTPUT_NAME z)
+    
+    if(BUILD_SHARED_AND_STATIC_LIBS)
+        set_target_properties(zlibstatic PROPERTIES OUTPUT_NAME z)
+    endif()
+
+    if(NOT APPLE AND BUILD_SHARED_LIBS)
+        set_target_properties(zlib PROPERTIES LINK_FLAGS "-Wl,--version-script,\"${CMAKE_CURRENT_SOURCE_DIR}/zlib.map\"")
+    endif()
 elseif(BUILD_SHARED_LIBS AND WIN32)
     # Creates zlib1.dll when building shared library version
     set_target_properties(zlib PROPERTIES SUFFIX "1.dll")
 endif()
 
 if(NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL )
-    install(TARGETS zlib zlibstatic
+    if(BUILD_SHARED_AND_STATIC_LIBS)
+        SET(ZLIB_INSTALL_TARGETS zlib zlibstatic)
+    else()
+        SET(ZLIB_INSTALL_TARGETS zlib )
+    endif()
+    
+    install(TARGETS ${ZLIB_INSTALL_TARGETS}
         RUNTIME DESTINATION "${INSTALL_BIN_DIR}"
         ARCHIVE DESTINATION "${INSTALL_LIB_DIR}"
         LIBRARY DESTINATION "${INSTALL_LIB_DIR}" )
@@ -232,6 +273,7 @@ endif()
 
 add_executable(example test/example.c)
 target_link_libraries(example zlib)
+
 add_test(example example)
 
 add_executable(minigzip test/minigzip.c)
